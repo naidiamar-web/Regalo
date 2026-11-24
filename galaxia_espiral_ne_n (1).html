@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Galaxia Espiral Neón</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #03030b;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .canvas-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    canvas {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      box-shadow: 0 0 60px rgba(88, 28, 135, 0.25);
+    }
+
+    .controls {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+      z-index: 50;
+    }
+
+    .btn {
+      background: rgba(15, 15, 35, 0.85);
+      color: #e9d5ff;
+      border: 1px solid rgba(192, 132, 252, 0.35);
+      border-radius: 9999px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(4px);
+    }
+
+    .btn:hover {
+      background: rgba(46, 16, 101, 0.9);
+      transform: translateY(-1px);
+    }
+
+    @media print {
+      .controls {
+        display: none !important;
+      }
+    }
+
+    .love-message {
+      position: fixed;
+      bottom: 8%;
+      left: 50%;
+      transform: translateX(-50%) translateY(10px);
+      color: #fff3c4;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-style: italic;
+      font-size: clamp(16px, 2.2vw, 24px);
+      letter-spacing: 2px;
+      text-align: center;
+      text-shadow: 0 0 18px rgba(255, 215, 130, 0.95), 0 0 35px rgba(216, 180, 254, 0.8);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 2.2s ease, transform 2.2s ease;
+      z-index: 30;
+      width: 90%;
+    }
+
+    .love-message.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas-container">
+    <canvas id="galaxyCanvas"></canvas>
+  </div>
+
+  <div class="love-message" id="loveMessage">así es todo lo que me haces sentir ♥</div>
+
+  <div class="controls" id="controls">
+    <button class="btn" id="replayBtn" type="button">Dibujar de nuevo</button>
+    <button class="btn" id="hideBtn" type="button">Ocultar botones</button>
+  </div>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      const canvas = document.getElementById('galaxyCanvas');
+      const ctx = canvas.getContext('2d');
+
+      // Proporción exacta del lienzo original (780 x 480) escalada con nitidez Retina
+      const BASE_W = 780;
+      const BASE_H = 480;
+      let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      function setupCanvas() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const scale = Math.min(window.innerWidth / BASE_W, window.innerHeight / BASE_H);
+        const displayW = Math.floor(BASE_W * scale);
+        const displayH = Math.floor(BASE_H * scale);
+
+        canvas.style.width = displayW + 'px';
+        canvas.style.height = displayH + 'px';
+        canvas.width = Math.floor(BASE_W * dpr);
+        canvas.height = Math.floor(BASE_H * dpr);
+      }
+
+      setupCanvas();
+
+      // Constante exacta del código original
+      const TILT = 0.45;
+      const COS_TILT = Math.cos(TILT);
+      const SIN_TILT = Math.sin(TILT);
+
+      // Generador pseudoaleatorio determinista (seed = 7) para replicar exactamente la misma galaxia
+      let seed = 7;
+      function rand() {
+        seed = (seed * 16807) % 2147483647;
+        return (seed - 1) / 2147483646;
+      }
+
+      function uniform(min, max) {
+        return min + (max - min) * rand();
+      }
+
+      function randint(min, max) {
+        return Math.floor(rand() * (max - min + 1)) + min;
+      }
+
+      // Distribución Gaussiana (Box-Muller)
+      function gauss(mean, std) {
+        let u = 0, v = 0;
+        while (u === 0) u = rand();
+        while (v === 0) v = rand();
+        const num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        return num * std + mean;
+      }
+
+      // Conversión exacta colorsys.hsv_to_rgb(h, 1, 0.7, v) -> glow(h, v=1.0)
+      function glow(h, v = 1.0) {
+        h = ((h % 1) + 1) % 1;
+        const s = 0.7;
+        const i = Math.floor(h * 6);
+        const f = h * 6 - i;
+        const p = v * (1 - s);
+        const q = v * (1 - f * s);
+        const t = v * (1 - (1 - f) * s);
+
+        let r, g, b;
+        switch (i % 6) {
+          case 0: r = v; g = t; b = p; break;
+          case 1: r = q; g = v; b = p; break;
+          case 2: r = p; g = v; b = t; break;
+          case 3: r = p; g = q; b = v; break;
+          case 4: r = t; g = p; b = v; break;
+          case 5: r = v; g = p; b = q; break;
+        }
+        return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+      }
+
+      // Proyección inclinada exacta place(x, y)
+      function place(x, y) {
+        const ys = y * 0.55;
+        const px = x * COS_TILT - ys * SIN_TILT;
+        const py = x * SIN_TILT + ys * COS_TILT;
+        // Convertir coordenadas centradas de Turtle a Canvas
+        return {
+          x: BASE_W / 2 + px,
+          y: BASE_H / 2 - py
+        };
+      }
+
+      // Construir la lista ordenada de comandos de dibujo idéntica a galaxy.py
+      let drawQueue = [];
+
+      function buildGalaxyQueue() {
+        seed = 7;
+        drawQueue = [];
+
+        // 1. stars() -> 140 estrellas blancas de fondo
+        for (let i = 0; i < 140; i++) {
+          const x = uniform(-385, 385);
+          const y = uniform(-235, 235);
+          const size = randint(1, 3);
+          drawQueue.push({
+            x: BASE_W / 2 + x,
+            y: BASE_H / 2 - y,
+            size: size,
+            color: '#ffffff',
+            glowBlur: size > 2 ? 4 : 0
+          });
+        }
+
+        // 2. dust() -> 700 partículas de polvo cósmico azul/violeta
+        for (let i = 0; i < 700; i++) {
+          const r = gauss(0, 120);
+          const a = uniform(0, 6.283);
+          const pos = place(r * Math.cos(a), r * Math.sin(a));
+          const size = randint(2, 4);
+          drawQueue.push({
+            x: pos.x,
+            y: pos.y,
+            size: size,
+            color: glow(0.7, 0.3),
+            glowBlur: 3
+          });
+        }
+
+        // 3. arms(900) -> 4 brazos espirales con degradado HSV
+        const count = 900;
+        for (let i = 0; i < count; i++) {
+          for (let k = 0; k < 4; k++) {
+            const d = i / count;
+            const a = k * Math.PI / 2 + d * 5.5;
+            const r = 10 + d * 290;
+            const s = 4 + d * 26;
+            const x = r * Math.cos(a) + gauss(0, s);
+            const y = r * Math.sin(a) + gauss(0, s);
+            const pos = place(x, y);
+            const hue = 0.13 - d * 0.55;
+            const v = uniform(0.6, 1.0);
+            const size = randint(2, 4);
+            drawQueue.push({
+              x: pos.x,
+              y: pos.y,
+              size: size,
+              color: glow(hue, v),
+              glowBlur: 5
+            });
+          }
+        }
+
+        // 4. core() -> 260 puntos del núcleo cálido
+        for (let i = 0; i < 260; i++) {
+          const r = gauss(0, 26);
+          const a = uniform(0, 6.283);
+          const pos = place(r * Math.cos(a), r * Math.sin(a));
+          const size = randint(2, 5);
+          drawQueue.push({
+            x: pos.x,
+            y: pos.y,
+            size: size,
+            color: glow(0.12),
+            glowBlur: 6
+          });
+        }
+
+        // 5. sparkle() -> 40 destellos blancos brillantes
+        for (let i = 0; i < 40; i++) {
+          const r = gauss(0, 150);
+          const a = uniform(0, 6.283);
+          const pos = place(r * Math.cos(a), r * Math.sin(a));
+          const size = randint(5, 8);
+          drawQueue.push({
+            x: pos.x,
+            y: pos.y,
+            size: size,
+            color: '#ffffff',
+            glowBlur: 10
+          });
+        }
+
+        // 6. t.goto(0, 0); t.dot(26, "#fff3c4") -> Centro luminoso final
+        drawQueue.push({
+          x: BASE_W / 2,
+          y: BASE_H / 2,
+          size: 26,
+          color: '#fff3c4',
+          glowBlur: 24,
+          isCoreCenter: true
+        });
+      }
+
+      let currentIndex = 0;
+      let animId = null;
+      let explosionFrame = 0;
+      let explosionParticles = [];
+      let shockwaveRadius = 0;
+      const loveMessageEl = document.getElementById('loveMessage');
+
+      function initExplosion() {
+        explosionParticles = [];
+        shockwaveRadius = 4;
+
+        // Convertir los puntos de la galaxia + chispas extra en partículas que estallan desde el centro
+        for (let i = 0; i < drawQueue.length; i += 2) {
+          const dot = drawQueue[i];
+          const dx = dot.x - BASE_W / 2;
+          const dy = dot.y - BASE_H / 2;
+          const dist = Math.hypot(dx, dy) || 1;
+          const angle = Math.atan2(dy, dx) + uniform(-0.18, 0.18);
+          const speed = uniform(1.4, 5.2) + (dist / 260) * 2.2;
+
+          explosionParticles.push({
+            x: dot.x,
+            y: dot.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: dot.size * uniform(0.9, 1.5),
+            color: i % 5 === 0 ? '#fff3c4' : dot.color,
+            alpha: 1.0,
+            decay: uniform(0.005, 0.011),
+            glowBlur: dot.glowBlur + 4
+          });
+        }
+
+        // Destellos dorados y rosas extra que nacen del corazón de la explosión
+        for (let j = 0; j < 260; j++) {
+          const angle = uniform(0, Math.PI * 2);
+          const speed = uniform(0.6, 6.8);
+          const palette = ['#fff3c4', '#fde047', '#f472b6', '#d8b4fe', '#ffffff'];
+          explosionParticles.push({
+            x: BASE_W / 2,
+            y: BASE_H / 2,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: uniform(1.5, 4.5),
+            color: palette[j % palette.length],
+            alpha: 1.0,
+            decay: uniform(0.004, 0.009),
+            glowBlur: 12
+          });
+        }
+      }
+
+      function clearAndStart() {
+        if (animId) cancelAnimationFrame(animId);
+        buildGalaxyQueue();
+        currentIndex = 0;
+        explosionFrame = 0;
+        explosionParticles = [];
+        loveMessageEl.classList.remove('visible');
+
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = '#03030b';
+        ctx.fillRect(0, 0, BASE_W, BASE_H);
+        ctx.restore();
+
+        stepDraw();
+      }
+
+      function stepDraw() {
+        ctx.save();
+        ctx.scale(dpr, dpr);
+
+        // Fase 1: Dibujado lento y progresivo de la galaxia
+        if (currentIndex < drawQueue.length) {
+          const batchSize = currentIndex < 840 ? 4 : 5;
+          const end = Math.min(drawQueue.length, currentIndex + batchSize);
+
+          for (let i = currentIndex; i < end; i++) {
+            const dot = drawQueue[i];
+            ctx.beginPath();
+            ctx.fillStyle = dot.color;
+            if (dot.glowBlur > 0) {
+              ctx.shadowColor = dot.color;
+              ctx.shadowBlur = dot.glowBlur;
+            } else {
+              ctx.shadowBlur = 0;
+            }
+            ctx.arc(dot.x, dot.y, dot.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (dot.isCoreCenter) {
+              const grad = ctx.createRadialGradient(dot.x, dot.y, 2, dot.x, dot.y, 34);
+              grad.addColorStop(0, 'rgba(255, 243, 196, 0.95)');
+              grad.addColorStop(0.45, 'rgba(255, 215, 130, 0.35)');
+              grad.addColorStop(1, 'rgba(255, 215, 130, 0)');
+              ctx.fillStyle = grad;
+              ctx.beginPath();
+              ctx.arc(dot.x, dot.y, 34, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+
+          ctx.restore();
+          currentIndex = end;
+          animId = requestAnimationFrame(stepDraw);
+          return;
+        }
+
+        // Fase 2: Pausa breve y latido del núcleo antes de estallar
+        explosionFrame++;
+        if (explosionFrame <= 55) {
+          const pulse = Math.sin((explosionFrame / 55) * Math.PI);
+          const r = 18 + pulse * 26;
+          const grad = ctx.createRadialGradient(
+            BASE_W / 2,
+            BASE_H / 2,
+            1,
+            BASE_W / 2,
+            BASE_H / 2,
+            r
+          );
+          grad.addColorStop(0, `rgba(255, 250, 230, ${0.35 * pulse})`);
+          grad.addColorStop(0.5, `rgba(255, 215, 130, ${0.18 * pulse})`);
+          grad.addColorStop(1, 'rgba(255, 215, 130, 0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(BASE_W / 2, BASE_H / 2, r, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (explosionFrame === 55) {
+            initExplosion();
+            loveMessageEl.classList.add('visible');
+          }
+
+          ctx.restore();
+          animId = requestAnimationFrame(stepDraw);
+          return;
+        }
+
+        // Fase 3: Supernova expansiva dejando estelas de luz suaves
+        ctx.fillStyle = 'rgba(3, 3, 11, 0.14)';
+        ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+        // Destello inicial blanco-dorado que se disipa
+        if (explosionFrame < 80) {
+          const flashAlpha = (1 - (explosionFrame - 55) / 25) * 0.65;
+          const flashGrad = ctx.createRadialGradient(
+            BASE_W / 2,
+            BASE_H / 2,
+            2,
+            BASE_W / 2,
+            BASE_H / 2,
+            190
+          );
+          flashGrad.addColorStop(0, `rgba(255, 252, 240, ${flashAlpha})`);
+          flashGrad.addColorStop(0.4, `rgba(244, 114, 182, ${flashAlpha * 0.45})`);
+          flashGrad.addColorStop(1, 'rgba(3, 3, 11, 0)');
+          ctx.fillStyle = flashGrad;
+          ctx.beginPath();
+          ctx.arc(BASE_W / 2, BASE_H / 2, 190, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Onda expansiva luminosa
+        if (shockwaveRadius < 460) {
+          shockwaveRadius += 5.2;
+          const waveAlpha = Math.max(0, 1 - shockwaveRadius / 460) * 0.55;
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(255, 243, 196, ${waveAlpha})`;
+          ctx.lineWidth = 2.2;
+          ctx.shadowColor = '#f472b6';
+          ctx.shadowBlur = 14;
+          ctx.arc(BASE_W / 2, BASE_H / 2, shockwaveRadius, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        let aliveCount = 0;
+        for (let i = 0; i < explosionParticles.length; i++) {
+          const p = explosionParticles[i];
+          if (p.alpha <= 0.01) continue;
+          aliveCount++;
+
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vx *= 0.985;
+          p.vy *= 0.985;
+          p.alpha -= p.decay;
+
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.beginPath();
+          ctx.fillStyle = p.color;
+          ctx.shadowColor = p.color;
+          ctx.shadowBlur = p.glowBlur;
+          ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+
+        if (aliveCount > 0) {
+          animId = requestAnimationFrame(stepDraw);
+        }
+      }
+
+      // Redimensionado fluido manteniendo la imagen ya dibujada
+      window.addEventListener('resize', function () {
+        const savedIndex = currentIndex;
+        setupCanvas();
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = '#03030b';
+        ctx.fillRect(0, 0, BASE_W, BASE_H);
+        for (let i = 0; i < savedIndex; i++) {
+          const dot = drawQueue[i];
+          ctx.beginPath();
+          ctx.fillStyle = dot.color;
+          ctx.shadowColor = dot.color;
+          ctx.shadowBlur = dot.glowBlur;
+          ctx.arc(dot.x, dot.y, dot.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+
+      const replayBtn = document.getElementById('replayBtn');
+      const hideBtn = document.getElementById('hideBtn');
+      const controlsEl = document.getElementById('controls');
+
+      replayBtn.addEventListener('click', function () {
+        clearAndStart();
+      });
+
+      hideBtn.addEventListener('click', function () {
+        controlsEl.style.display = 'none';
+      });
+
+      document.body.addEventListener('click', function (e) {
+        if (controlsEl.style.display === 'none' && e.target.tagName !== 'BUTTON') {
+          controlsEl.style.display = 'flex';
+        }
+      });
+
+      clearAndStart();
+    });
+  </script>
+</body>
+</html>
